@@ -26,5 +26,5 @@ def from_csv(filepath: str) -> pd.DataFrame:
     
         return df
     except Exception as e:
-        logging.error(f"Erro ao ler o CSV: {e}")
-        return pd.DataFrame()
+        logging.error("Erro ao ler o CSV: %s", e)
+        raise
