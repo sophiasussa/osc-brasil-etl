@@ -1,86 +1,321 @@
-import pandas as pd
 import logging
 
-# Configuração global de logging
+import pandas as pd
+
+
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(levelname)s] %(message)s'
+    format="[%(levelname)s] %(message)s",
 )
+
+
+def fix_mojibake(value: str) -> str:
+    """
+    Corrige textos que foram decodificados incorretamente
+    como Latin-1 quando originalmente eram UTF-8.
+    """
+    try:
+        return value.encode("latin1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return value
+
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Aplica transformações no DataFrame bruto:
-    - Remove linhas vazias
-    - Converte colunas numéricas e booleanas
-    - Padroniza strings e datas
-    - Valida coordenadas geográficas
+    Limpa e transforma o DataFrame bruto do dataset OSC Brasil.
 
-    Args:
-        df (pd.DataFrame): DataFrame bruto extraído
-
-    Returns:
-        pd.DataFrame: DataFrame limpo e padronizado
+    As transformações são específicas para o formato atual
+    do dataset e preservam a semântica dos dados de origem.
     """
     if df.empty:
-        logging.warning("DataFrame recebido está vazio. Nada será transformado.")
+        logging.warning(
+            "DataFrame recebido está vazio. Nada será transformado."
+        )
         return df
-    
-    original = df.shape
-    logging.info(f"Shape original do DataFrame: {original}")
 
-    # Renomeação de colunas específicas
-    renomeadas = {
-        'tx_razao_social_osc': 'razao_social',
-        'tx_nome_fantasia_osc': 'nome_fantasia',
-        'tx_endereco_completo': 'endereco_completo',
-        'cd_natureza_juridica_osc': 'codigo_natureza_juridica',
-        'cd_uf': 'codigo_uf',
-        'tx_latitude': 'latitude',
-        'tx_longitude': 'longitude',
-        'dt_fundacao_osc': 'dt_fundacao'
+    df = df.copy()
+
+    logging.info(f"Shape original do DataFrame: {df.shape}")
+
+    # ------------------------------------------------------------------
+    # 1. Remover linhas completamente vazias
+    # ------------------------------------------------------------------
+
+    before = len(df)
+
+    df.dropna(how="all", inplace=True)
+
+    logging.info(
+        f"Linhas totalmente vazias removidas: {before - len(df)}"
+    )
+
+    # ------------------------------------------------------------------
+    # 2. Limpeza básica de strings
+    # ------------------------------------------------------------------
+
+    text_columns = [
+        "tx_razao_social_osc",
+        "tx_nome_fantasia_osc",
+        "tx_endereco_completo",
+        "matriz_filial",
+        "situacao_cadastral",
+        "removida_do_mosc",
+    ]
+
+    for column in text_columns:
+        if column in df.columns:
+            df[column] = (
+                df[column]
+                .astype("string")
+                .str.strip()
+            )
+
+    # ------------------------------------------------------------------
+    # 3. Corrigir mojibake
+    # ------------------------------------------------------------------
+
+    mojibake_columns = [
+        "tx_endereco_completo",
+        "matriz_filial",
+        "removida_do_mosc",
+    ]
+
+    for column in mojibake_columns:
+        if column in df.columns:
+            df[column] = df[column].map(
+                lambda value: (
+                    fix_mojibake(value)
+                    if pd.notna(value)
+                    else value
+                )
+            )
+
+    logging.info("Correção de encoding aplicada.")
+
+    # ------------------------------------------------------------------
+    # 4. CNPJ
+    # ------------------------------------------------------------------
+
+    if "cnpj" in df.columns:
+        df["cnpj"] = (
+            df["cnpj"]
+            .astype("string")
+            .str.strip()
+        )
+
+        invalid_cnpj = (
+            df["cnpj"].notna()
+            & ~df["cnpj"].str.fullmatch(r"\d{14}")
+        )
+
+        logging.info(
+            f"CNPJs inválidos encontrados: {invalid_cnpj.sum()}"
+        )
+
+    # ------------------------------------------------------------------
+    # 5. Natureza jurídica
+    # ------------------------------------------------------------------
+
+    if "natureza_juridica" in df.columns:
+        df["natureza_juridica"] = (
+            pd.to_numeric(
+                df["natureza_juridica"],
+                errors="coerce",
+            )
+            .astype("Int64")
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Situação cadastral
+    # ------------------------------------------------------------------
+
+    status_mapping = {
+        "Ativa": "ACTIVE",
+        "Inapta": "INAPT",
+        "Nula ou Baixada": "CLOSED_OR_NULL",
+        "Suspensa": "SUSPENDED",
     }
-    df.rename(columns=renomeadas, inplace=True)
-    logging.info("Colunas específicas renomeadas.")
 
-    # Padroniza todos os nomes de colunas: minúsculo e _ no lugar de espaços
-    df.columns = [col.strip().lower().replace(" ", "_") for col in df.columns]
-    logging.info("Nomes das colunas padronizados.")
+    if "situacao_cadastral" in df.columns:
+        df["situacao_cadastral"] = (
+            df["situacao_cadastral"]
+            .replace(status_mapping)
+        )
 
-    # Remove linhas totalmente vazias
-    df.dropna(how='all', inplace=True)
-    logging.info(f"Linhas totalmente vazias removidas: {original[0] - df.shape[0]}")
-    
-    # Converte colunas binárias para booleanos
-    colunas_booleans = 0
-    for col in df.columns:
-        if df[col].dropna().isin([0, 1]).all():
-            df[col] = df[col].astype(bool)
-            colunas_booleans += 1
-    logging.info(f"{colunas_booleans} colunas convertidas para booleano.")
+    # ------------------------------------------------------------------
+    # 7. Matriz / filial
+    # ------------------------------------------------------------------
 
-    # Conversão de colunas para numérico, quando possível
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='ignore')
-    logging.info("Conversão para numérico aplicada onde possível.")
+    matrix_mapping = {
+        "Matriz": "HEADQUARTERS",
+        "Filial": "BRANCH",
+        "Não Identificado": "UNKNOWN",
+    }
 
-    # Padronização de strings
-    colunas_texto = df.select_dtypes(include='object').columns
-    for col in colunas_texto:
-        df[col] = df[col].astype(str).str.strip().str.replace(r'\s+', ' ', regex=True).str.title()
-    logging.info(f"{len(colunas_texto)} colunas de texto padronizadas com .title()")
+    if "matriz_filial" in df.columns:
+        df["matriz_filial"] = (
+            df["matriz_filial"]
+            .replace(matrix_mapping)
+        )
 
-    # Conversão de datas
-    if 'dt_fundacao' in df.columns:
-        df['dt_fundacao'] = pd.to_datetime(df['dt_fundacao'], errors='coerce', dayfirst=True)
-        logging.info("Coluna 'dt_fundacao' convertida para datetime.")
+    # ------------------------------------------------------------------
+    # 8. Removida do MOSC
+    # ------------------------------------------------------------------
 
-    # Validação de coordenadas geográficas
-    if 'latitude' in df.columns and 'longitude' in df.columns:
-        antes = df.shape[0]
-        df = df[df['latitude'].between(-90, 90, inclusive='both') &
-                df['longitude'].between(-180, 180, inclusive='both')]
-        logging.info(f"Coordenadas inválidas removidas: {antes - df.shape[0]} linhas")
+    removed_mapping = {
+        "sim": True,
+        "não": False,
+    }
+
+    if "removida_do_mosc" in df.columns:
+        df["removida_do_mosc"] = (
+            df["removida_do_mosc"]
+            .replace(removed_mapping)
+        )
+
+    # ------------------------------------------------------------------
+    # 9. Datas
+    # ------------------------------------------------------------------
+
+    for column in [
+        "dt_fundacao_osc",
+        "data_fechamento",
+    ]:
+        if column in df.columns:
+            df[column] = pd.to_datetime(
+                df[column],
+                errors="coerce",
+            ).dt.date
+
+    # ------------------------------------------------------------------
+    # 10. Ano de fechamento
+    # ------------------------------------------------------------------
+
+    if "ano_fechamento" in df.columns:
+        df["ano_fechamento"] = (
+            pd.to_numeric(
+                df["ano_fechamento"],
+                errors="coerce",
+            )
+            .astype("Int64")
+        )
+
+    # ------------------------------------------------------------------
+    # 11. Município
+    # ------------------------------------------------------------------
+
+    if "cd_municipio" in df.columns:
+        df["cd_municipio"] = (
+            pd.to_numeric(
+                df["cd_municipio"],
+                errors="coerce",
+            )
+            .astype("Int64")
+        )
+
+        # 0 não representa um município válido.
+        # Deve ser tratado como NULL no banco.
+        df.loc[
+            df["cd_municipio"] == 0,
+            "cd_municipio",
+        ] = pd.NA
+
+    if "municipio_nome" in df.columns:
+        df["municipio_nome"] = (
+            df["municipio_nome"]
+            .astype("string")
+            .str.strip()
+        )
+
+    if "UF_Sigla" in df.columns:
+        df["UF_Sigla"] = (
+            df["UF_Sigla"]
+            .astype("string")
+            .str.strip()
+            .str.upper()
+        )
+
+    # ------------------------------------------------------------------
+    # 12. Coordenadas
+    # ------------------------------------------------------------------
+
+    for column in ["latitude", "longitude"]:
+        if column in df.columns:
+            df[column] = pd.to_numeric(
+                df[column],
+                errors="coerce",
+            )
+
+    if "latitude" in df.columns:
+        invalid_latitude = (
+            df["latitude"].notna()
+            & ~df["latitude"].between(-90, 90)
+        )
+
+        logging.info(
+            f"Latitudes inválidas: {invalid_latitude.sum()}"
+        )
+
+        df.loc[invalid_latitude, "latitude"] = pd.NA
+
+    if "longitude" in df.columns:
+        invalid_longitude = (
+            df["longitude"].notna()
+            & ~df["longitude"].between(-180, 180)
+        )
+
+        logging.info(
+            f"Longitudes inválidas: {invalid_longitude.sum()}"
+        )
+
+        df.loc[invalid_longitude, "longitude"] = pd.NA
+
+    # ------------------------------------------------------------------
+    # 13. CNAE principal
+    # ------------------------------------------------------------------
+
+    if "cnae" in df.columns:
+        df["cnae"] = (
+            pd.to_numeric(
+                df["cnae"],
+                errors="coerce",
+            )
+            .astype("Int64")
+            .astype("string")
+        )
+
+    # ------------------------------------------------------------------
+    # 14. CNAEs secundários
+    # ------------------------------------------------------------------
+
+    if "cnae_secundaria" in df.columns:
+        df["cnae_secundaria"] = (
+            df["cnae_secundaria"]
+            .astype("string")
+            .str.strip()
+        )
+
+    # ------------------------------------------------------------------
+    # 15. Nomes e endereço
+    # ------------------------------------------------------------------
+
+    for column in [
+        "tx_razao_social_osc",
+        "tx_nome_fantasia_osc",
+        "tx_endereco_completo",
+    ]:
+        if column in df.columns:
+            df[column] = (
+                df[column]
+                .astype("string")
+                .str.strip()
+            )
+
+    # ------------------------------------------------------------------
+    # Resultado
+    # ------------------------------------------------------------------
 
     logging.info(f"Shape final do DataFrame: {df.shape}")
     logging.info("Transformações aplicadas com sucesso.")
+
     return df
