@@ -1,30 +1,49 @@
-import pandas as pd
 import logging
+
+import pandas as pd
+
 
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(levelname)s] %(message)s'
+    format="[%(levelname)s] %(message)s",
 )
+
 
 def from_csv(filepath: str) -> pd.DataFrame:
     """
-    Lê um arquivo CSV e retorna um DataFrame do pandas.
-    
+    Lê o arquivo CSV do dataset OSC Brasil e retorna um DataFrame.
+
     Args:
-        filepath (str): Caminho para o arquivo CSV.
+        filepath: Caminho para o arquivo CSV.
 
     Returns:
-        pd.DataFrame: DataFrame com os dados carregados.
+        DataFrame contendo os dados brutos do CSV.
     """
     try:
-        df = pd.read_csv(filepath, encoding='utf-8', delimiter=';', decimal=',')
-        logging.info(f"CSV carregado com sucesso: {len(df)} registros")
-        
-        # Mostrar as primeiras linhas somente se o nível DEBUG estiver ativado
+        df = pd.read_csv(
+            filepath,
+            encoding="latin1",
+            delimiter=";",
+            decimal=",",
+            dtype={"cnpj": "string"},
+        )
+
+        logging.info(
+            "CSV carregado com sucesso: %d registros",
+            len(df),
+        )
+
         if logging.getLogger().isEnabledFor(logging.DEBUG):
-            logging.debug(f"Primeiras 5 linhas:\n{df.head(5).to_string()}")
-    
+            logging.debug(
+                "Primeiras 5 linhas:\n%s",
+                df.head(5).to_string(),
+            )
+
         return df
+
     except Exception as e:
-        logging.error("Erro ao ler o CSV: %s", e)
+        logging.error(
+            "Erro ao ler o CSV: %s",
+            e,
+        )
         raise

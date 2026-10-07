@@ -1,40 +1,26 @@
 import logging
 
-import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
+
+from etl.models import Base
 
 
-def to_postgresql(
-    df: pd.DataFrame,
-    db_url: str,
-    table_name: str,
-) -> None:
+def create_database_engine(db_url: str) -> Engine:
     """
-    Loads a DataFrame into a PostgreSQL table.
-
-    Args:
-        df: DataFrame to be loaded.
-        db_url: PostgreSQL connection URL.
-        table_name: Target table name.
+    Creates a SQLAlchemy engine for PostgreSQL.
     """
-    try:
-        engine = create_engine(db_url)
+    return create_engine(
+        db_url,
+        pool_pre_ping=True,
+    )
 
-        df.to_sql(
-            table_name,
-            con=engine,
-            if_exists="replace",
-            index=False,
-            chunksize=1000,
-        )
 
-        logging.info(
-            "Tabela '%s' carregada com sucesso no PostgreSQL.",
-            table_name,
-        )
-    except Exception as e:
-        logging.error(
-            "Erro ao carregar dados no PostgreSQL: %s",
-            e,
-        )
-        raise
+def create_tables(engine: Engine) -> None:
+    """
+    Creates all tables defined in the SQLAlchemy models.
+    """
+    Base.metadata.create_all(engine)
+
+    logging.info(
+        "Database tables created successfully."
+    )

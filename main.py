@@ -4,8 +4,8 @@ import os
 from dotenv import load_dotenv
 
 from etl.extract import from_csv
-from etl.load import to_postgresql
 from etl.transform import clean
+from etl.load import create_database_engine, create_tables
 
 
 logging.basicConfig(
@@ -13,26 +13,51 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s",
 )
 
-load_dotenv()
 
-DB_URL = os.getenv("DB_URL")
+def main() -> None:
+    load_dotenv()
 
+    filepath = "data/osc.csv"
+    db_url = os.getenv("DB_URL")
 
-def run_pipeline() -> None:
-    df = from_csv("data/oscs.csv")
-    df_limpo = clean(df)
+    if not db_url:
+        raise ValueError("DB_URL não configurada.")
 
-    if not DB_URL:
-        raise ValueError(
-            "Variável DB_URL não encontrada. Verifique o arquivo .env."
-        )
+    # --------------------------------------------------------------
+    # Extract
+    # --------------------------------------------------------------
 
-    to_postgresql(
-        df_limpo,
-        DB_URL,
-        "oscs",
+    df = from_csv(filepath)
+
+    # Para o primeiro teste, usamos apenas algumas linhas.
+    df = df.head(100)
+
+    logging.info(
+        "Registros selecionados para teste: %d",
+        len(df),
     )
+
+    # --------------------------------------------------------------
+    # Transform
+    # --------------------------------------------------------------
+
+    df = clean(df)
+
+    logging.info(
+        "DataFrame transformado com %d registros.",
+        len(df),
+    )
+
+    # --------------------------------------------------------------
+    # Load
+    # --------------------------------------------------------------
+
+    engine = create_database_engine(db_url)
+
+    create_tables(engine)
+
+    logging.info("Pipeline executado com sucesso.")
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    main()
