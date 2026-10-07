@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -17,7 +18,7 @@ logging.basicConfig(
 def main() -> None:
     load_dotenv()
 
-    filepath = "data/osc.csv"
+    filepath = Path("data/osc.csv")
     db_url = os.getenv("DB_URL")
 
     if not db_url:
@@ -53,8 +54,8 @@ def main() -> None:
     # --------------------------------------------------------------
 
     engine = create_database_engine(db_url)
-
     create_tables(engine)
+    engine.dispose()
 
     logging.info("Pipeline executado com sucesso.")
 
