@@ -279,10 +279,17 @@ def test_load_dataframe_should_commit():
 
         with patch("etl.load._load_legal_natures"), \
              patch("etl.load._load_municipalities"), \
-             patch("etl.load._load_organizations"):
+             patch("etl.load._load_cnaes"), \
+             patch("etl.load._load_activity_areas"), \
+             patch("etl.load._load_activity_subareas"), \
+             patch("etl.load._load_organizations"), \
+             patch("etl.load._load_organization_cnaes"), \
+             patch("etl.load._load_organization_areas"), \
+             patch("etl.load._load_organization_subareas"):
 
             load_dataframe(df, engine)
 
+    session.flush.assert_called_once()
     session.commit.assert_called_once()
     session.rollback.assert_not_called()
 
