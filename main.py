@@ -6,7 +6,11 @@ from dotenv import load_dotenv
 
 from etl.extract import from_csv
 from etl.transform import clean
-from etl.load import create_database_engine, create_tables
+from etl.load import (
+    create_database_engine,
+    create_tables,
+    load_dataframe,
+)
 
 
 logging.basicConfig(
@@ -54,7 +58,10 @@ def main() -> None:
     # --------------------------------------------------------------
 
     engine = create_database_engine(db_url)
+
     create_tables(engine)
+    load_dataframe(df, engine)
+
     engine.dispose()
 
     logging.info("Pipeline executado com sucesso.")

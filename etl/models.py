@@ -143,6 +143,7 @@ class Organization(Base):
     id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
+        autoincrement=True,
     )
 
     cnpj: Mapped[str] = mapped_column(
