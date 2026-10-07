@@ -170,7 +170,8 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     if "removida_do_mosc" in df.columns:
         df["removida_do_mosc"] = (
             df["removida_do_mosc"]
-            .replace(removed_mapping)
+            .map(removed_mapping)
+            .astype("boolean")
         )
 
     # ------------------------------------------------------------------
