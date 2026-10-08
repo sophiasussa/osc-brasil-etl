@@ -297,22 +297,6 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     # ------------------------------------------------------------------
-    # 15. Nomes e endereço
-    # ------------------------------------------------------------------
-
-    for column in [
-        "tx_razao_social_osc",
-        "tx_nome_fantasia_osc",
-        "tx_endereco_completo",
-    ]:
-        if column in df.columns:
-            df[column] = (
-                df[column]
-                .astype("string")
-                .str.strip()
-            )
-
-    # ------------------------------------------------------------------
     # Resultado
     # ------------------------------------------------------------------
 
