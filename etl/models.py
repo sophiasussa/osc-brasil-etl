@@ -59,12 +59,14 @@ class Municipality(Base):
     )
 
 
+
 class ActivityArea(Base):
     __tablename__ = "activity_areas"
 
     id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
+        autoincrement=True,
     )
 
     name: Mapped[str] = mapped_column(
@@ -88,6 +90,7 @@ class ActivitySubarea(Base):
     id: Mapped[int] = mapped_column(
         BigInteger,
         primary_key=True,
+        autoincrement=True,
     )
 
     area_id: Mapped[int] = mapped_column(

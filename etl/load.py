@@ -46,7 +46,7 @@ SUBAREA_COLUMNS = {
     ),
     "SubArea_Associacoes_de_atividades_nao_especificadas_anteriormente": (
         "Associações de atividades não especificadas anteriormente",
-        "Associações patronais e profissionais",
+        "Outras atividades associativas",
     ),
     "SubArea_Associacoes_de_produtores_rurais_pescadores_e_similares": (
         "Associações de produtores rurais, pescadores e similares",
@@ -378,41 +378,24 @@ def _load_cnaes(
         )
 
 
+
 def _load_activity_areas(
     df: pd.DataFrame,
     session: Session,
 ) -> None:
-    """
-    Loads activity areas.
-    """
+    """Loads activity areas without manually assigning IDs."""
 
-    existing_areas = {
-        area.name: area.id
-        for area in session.scalars(
-            select(ActivityArea)
+    existing_names = set(
+        session.scalars(
+            select(ActivityArea.name)
         ).all()
-    }
+    )
 
-    next_id = max(
-        existing_areas.values(),
-        default=0,
-    ) + 1
-
-    records = []
-
-    for name in AREA_COLUMNS.values():
-        if name in existing_areas:
-            continue
-
-        records.append(
-            {
-                "id": next_id,
-                "name": name,
-            }
-        )
-
-        existing_areas[name] = next_id
-        next_id += 1
+    records = [
+        {"name": name}
+        for name in AREA_COLUMNS.values()
+        if name not in existing_names
+    ]
 
     if records:
         session.execute(
@@ -425,10 +408,7 @@ def _load_activity_subareas(
     df: pd.DataFrame,
     session: Session,
 ) -> None:
-    """
-    Loads activity subareas and associates each subarea
-    with its parent activity area.
-    """
+    """Loads activity subareas with their parent areas."""
 
     areas = {
         area.name: area.id
@@ -437,48 +417,38 @@ def _load_activity_subareas(
         ).all()
     }
 
-    existing_subareas = {
-        (subarea.area_id, subarea.name): subarea.id
-        for subarea in session.scalars(
-            select(ActivitySubarea)
+    existing_subareas = set(
+        session.execute(
+            select(
+                ActivitySubarea.area_id,
+                ActivitySubarea.name,
+            )
         ).all()
-    }
-
-    existing_ids = [
-        subarea.id
-        for subarea in session.scalars(
-            select(ActivitySubarea.id)
-        ).all()
-    ]
-
-    next_id = max(
-        existing_ids,
-        default=0,
-    ) + 1
+    )
 
     records = []
 
-    for name, area_name in SUBAREA_COLUMNS.values():
-        area_id = areas[area_name]
+    for subarea_name, area_name in SUBAREA_COLUMNS.values():
+        area_id = areas.get(area_name)
 
-        key = (
-            area_id,
-            name,
-        )
+        if area_id is None:
+            raise ValueError(
+                f"Activity area not found: {area_name}"
+            )
+
+        key = (area_id, subarea_name)
 
         if key in existing_subareas:
             continue
 
         records.append(
             {
-                "id": next_id,
                 "area_id": area_id,
-                "name": name,
+                "name": subarea_name,
             }
         )
 
-        existing_subareas[key] = next_id
-        next_id += 1
+        existing_subareas.add(key)
 
     if records:
         session.execute(
