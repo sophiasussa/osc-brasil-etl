@@ -329,7 +329,17 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     # Resultado
     # ------------------------------------------------------------------
 
+
     logging.info(f"Shape final do DataFrame: {df.shape}")
+
+    memory_bytes = df.memory_usage(deep=True).sum()
+    memory_mb = memory_bytes / (1024 ** 2)
+
+    logging.info(
+        "Memória estimada do DataFrame transformado: %.2f MB",
+        memory_mb,
+    )
+
     logging.info("Transformações aplicadas com sucesso.")
 
     return df
