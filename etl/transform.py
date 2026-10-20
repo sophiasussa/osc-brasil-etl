@@ -92,6 +92,7 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 
     logging.info("Correção de encoding aplicada.")
 
+
     # ------------------------------------------------------------------
     # 4. CNPJ
     # ------------------------------------------------------------------
@@ -103,14 +104,42 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
             .str.strip()
         )
 
+        # Normaliza representações textuais de valores ausentes.
+        missing_cnpj_values = ["", "<NA>", "nan", "None"]
+
+        df["cnpj"] = df["cnpj"].replace(
+            missing_cnpj_values,
+            pd.NA,
+        )
+
         invalid_cnpj = (
             df["cnpj"].notna()
             & ~df["cnpj"].str.fullmatch(r"\d{14}")
         )
 
+        missing_cnpj = df["cnpj"].isna()
+
         logging.info(
-            f"CNPJs inválidos encontrados: {invalid_cnpj.sum()}"
+            "CNPJs ausentes: %d",
+            int(missing_cnpj.sum()),
         )
+
+        logging.info(
+            "CNPJs inválidos: %d",
+            int(invalid_cnpj.sum()),
+        )
+
+        # Não carregar organizações sem CNPJ válido.
+        invalid_rows = missing_cnpj | invalid_cnpj
+
+        if invalid_rows.any():
+            logging.warning(
+                "Organizações removidas por CNPJ ausente ou inválido: %d",
+                int(invalid_rows.sum()),
+            )
+
+            df = df.loc[~invalid_rows].copy()
+
 
     # ------------------------------------------------------------------
     # 5. Natureza jurídica

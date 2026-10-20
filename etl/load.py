@@ -114,6 +114,130 @@ SUBAREA_COLUMNS = {
     ),
 }
 
+def validate_activity_mappings(df: pd.DataFrame) -> None:
+    """Validates activity mapping definitions and source columns."""
+
+    expected_columns = (
+        set(AREA_COLUMNS) | set(SUBAREA_COLUMNS)
+    )
+
+    missing_columns = expected_columns - set(df.columns)
+
+    if missing_columns:
+        raise ValueError(
+            "Required activity columns are missing from "
+            f"the DataFrame: {sorted(missing_columns)}"
+        )
+
+    mapped_areas = set(AREA_COLUMNS.values())
+
+    mapped_parent_areas = {
+        area_name
+        for _, area_name in SUBAREA_COLUMNS.values()
+    }
+
+    undefined_parent_areas = (
+        mapped_parent_areas - mapped_areas
+    )
+
+    if undefined_parent_areas:
+        raise ValueError(
+            "Subareas reference undefined parent areas: "
+            f"{sorted(undefined_parent_areas)}"
+        )
+
+    logging.info(
+        "Activity mappings validated: %d areas and "
+        "%d subareas.",
+        len(AREA_COLUMNS),
+        len(SUBAREA_COLUMNS),
+    )
+
+def validate_organization_activity_data(
+    df: pd.DataFrame,
+) -> None:
+    """Checks consistency between organization activity areas and subareas."""
+
+    area_columns = list(AREA_COLUMNS)
+    subarea_columns = list(SUBAREA_COLUMNS)
+
+    areas_marked = df[area_columns].eq(1).any(axis=1)
+    subareas_marked = df[subarea_columns].eq(1).any(axis=1)
+
+    areas_without_subareas = df[
+        areas_marked & ~subareas_marked
+    ]
+
+    subareas_without_areas = df[
+        subareas_marked & ~areas_marked
+    ]
+
+    logging.info(
+        "Organizations with areas but no subareas: %d",
+        len(areas_without_subareas),
+    )
+
+    logging.info(
+        "Organizations with subareas but no areas: %d",
+        len(subareas_without_areas),
+    )
+
+    inconsistent_subareas = []
+
+    for column, (
+        subarea_name,
+        parent_area_name,
+    ) in SUBAREA_COLUMNS.items():
+        parent_area_column = next(
+            (
+                area_column
+                for area_column, area_name
+                in AREA_COLUMNS.items()
+                if area_name == parent_area_name
+            ),
+            None,
+        )
+
+        if parent_area_column is None:
+            raise ValueError(
+                f"Parent area not found for subarea: "
+                f"{subarea_name}"
+            )
+
+        invalid_rows = (
+            df[column].eq(1)
+            & ~df[parent_area_column].eq(1)
+        )
+
+        if invalid_rows.any():
+            inconsistent_subareas.append(
+                {
+                    "subarea": subarea_name,
+                    "parent_area": parent_area_name,
+                    "count": int(invalid_rows.sum()),
+                    "cnpjs": (
+                        df.loc[invalid_rows, "cnpj"]
+                        .head(5)
+                        .tolist()
+                    ),
+                }
+            )
+
+    if inconsistent_subareas:
+        for item in inconsistent_subareas:
+            logging.warning(
+                "Subarea marked without its parent area: "
+                "subarea=%s, parent_area=%s, count=%d, "
+                "example_cnpjs=%s",
+                item["subarea"],
+                item["parent_area"],
+                item["count"],
+                item["cnpjs"],
+            )
+    else:
+        logging.info(
+            "All marked subareas have their parent area marked."
+        )
 
 def create_database_engine(db_url: str) -> Engine:
     """
@@ -151,6 +275,9 @@ def load_dataframe(
         )
         return
 
+    validate_activity_mappings(df)
+    validate_organization_activity_data(df)
+    
     with Session(engine) as session:
         try:
             _load_legal_natures(df, session)
@@ -541,16 +668,24 @@ def _load_organizations(
     if not records:
         return {}
 
-    # PostgreSQL handles duplicate CNPJs safely.
-    statement = pg_insert(Organization).values(
-        records
-    )
+    batch_size = 1_000
 
-    statement = statement.on_conflict_do_nothing(
-        index_elements=["cnpj"]
-    )
+    for start in range(0, len(records), batch_size):
+        batch = records[start:start + batch_size]
 
-    session.execute(statement)
+        statement = pg_insert(Organization).values(batch)
+        statement = statement.on_conflict_do_nothing(
+            index_elements=["cnpj"]
+        )
+
+        session.execute(statement)
+
+        logging.info(
+            "Organizations inserted: %d/%d",
+            min(start + len(batch), len(records)),
+            len(records),
+        )
+
 
     # Retrieve generated IDs for the organizations loaded
     # in this batch.
@@ -558,7 +693,7 @@ def _load_organizations(
 
     organization_ids: dict[str, int] = {}
 
-    batch_size = 10_000
+    batch_size = 1_000
 
     for start in range(
         0,
@@ -586,6 +721,33 @@ def _load_organizations(
         )
 
     return organization_ids
+
+
+def _insert_in_batches(
+    session: Session,
+    model: type,
+    records: list[dict],
+    conflict_columns: list[str],
+    batch_size: int = 1_000,
+) -> None:
+    """Inserts records in batches, ignoring conflicts."""
+
+    for start in range(0, len(records), batch_size):
+        batch = records[start:start + batch_size]
+
+        statement = pg_insert(model).values(batch)
+        statement = statement.on_conflict_do_nothing(
+            index_elements=conflict_columns,
+        )
+
+        session.execute(statement)
+
+        logging.info(
+            "%s: processed %d/%d records",
+            model.__tablename__,
+            min(start + len(batch), len(records)),
+            len(records),
+        )
 
 
 def _load_organization_cnaes(
@@ -634,18 +796,15 @@ def _load_organization_cnaes(
     if not records:
         return
 
-    statement = pg_insert(
-        OrganizationCnae
-    ).values(records)
-
-    statement = statement.on_conflict_do_nothing(
-        index_elements=[
+    _insert_in_batches(
+        session=session,
+        model=OrganizationCnae,
+        records=records,
+        conflict_columns=[
             "organization_id",
             "cnae_code",
-        ]
+        ],
     )
-
-    session.execute(statement)
 
 
 def _load_organization_areas(
@@ -691,18 +850,15 @@ def _load_organization_areas(
     if not records:
         return
 
-    statement = pg_insert(
-        OrganizationArea
-    ).values(records)
-
-    statement = statement.on_conflict_do_nothing(
-        index_elements=[
+    _insert_in_batches(
+        session=session,
+        model=OrganizationArea,
+        records=records,
+        conflict_columns=[
             "organization_id",
             "area_id",
-        ]
+        ],
     )
-
-    session.execute(statement)
 
 
 def _load_organization_subareas(
@@ -759,7 +915,10 @@ def _load_organization_subareas(
             )
 
             if subarea_id is None:
-                continue
+                raise ValueError(
+                    f"Activity subarea not found: '{subarea_name}' "
+                    f"under parent area '{area_name}'."
+                )
 
             records.append(
                 {
@@ -771,15 +930,12 @@ def _load_organization_subareas(
     if not records:
         return
 
-    statement = pg_insert(
-        OrganizationSubarea
-    ).values(records)
-
-    statement = statement.on_conflict_do_nothing(
-        index_elements=[
+    _insert_in_batches(
+        session=session,
+        model=OrganizationSubarea,
+        records=records,
+        conflict_columns=[
             "organization_id",
             "subarea_id",
-        ]
+        ],
     )
-
-    session.execute(statement)
