@@ -292,16 +292,19 @@ def test_load_dataframe_should_commit():
     with patch("etl.load.Session") as session_class:
         session_class.return_value.__enter__.return_value = session
 
-        with patch("etl.load._load_legal_natures"), \
-             patch("etl.load._load_municipalities"), \
-             patch("etl.load._load_cnaes"), \
-             patch("etl.load._load_activity_areas"), \
-             patch("etl.load._load_activity_subareas"), \
-             patch("etl.load._load_organizations"), \
-             patch("etl.load._load_organization_cnaes"), \
-             patch("etl.load._load_organization_areas"), \
-             patch("etl.load._load_organization_subareas"):
-
+        with (
+            patch("etl.load.validate_activity_mappings"),
+            patch("etl.load.validate_organization_activity_data"),
+            patch("etl.load._load_legal_natures"),
+            patch("etl.load._load_municipalities"),
+            patch("etl.load._load_cnaes"),
+            patch("etl.load._load_activity_areas"),
+            patch("etl.load._load_activity_subareas"),
+            patch("etl.load._load_organizations"),
+            patch("etl.load._load_organization_cnaes"),
+            patch("etl.load._load_organization_areas"),
+            patch("etl.load._load_organization_subareas"),
+        ):
             load_dataframe(df, engine)
 
     session.commit.assert_called_once()
@@ -323,9 +326,13 @@ def test_load_dataframe_should_rollback_when_loading_fails():
     with patch("etl.load.Session") as session_class:
         session_class.return_value.__enter__.return_value = session
 
-        with patch(
-            "etl.load._load_legal_natures",
-            side_effect=Exception("Database error"),
+        with (
+            patch("etl.load.validate_activity_mappings"),
+            patch("etl.load.validate_organization_activity_data"),
+            patch(
+                "etl.load._load_legal_natures",
+                side_effect=Exception("Database error"),
+            ),
         ):
             with pytest.raises(
                 Exception,
