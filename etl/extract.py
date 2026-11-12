@@ -1,3 +1,4 @@
+
 import logging
 
 import pandas as pd
@@ -22,7 +23,7 @@ def from_csv(filepath: str) -> pd.DataFrame:
     try:
         df = pd.read_csv(
             filepath,
-            encoding="latin1",
+            encoding="utf-8",
             delimiter=";",
             decimal=",",
             dtype={"cnpj": "string"},
